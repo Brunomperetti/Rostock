@@ -1,0 +1,10 @@
+streamlit
+pandas
+folium
+streamlit-folium
+fuzzywuzzy
+requests
+matplotlib
+seaborn
+plotly
+oauth2client
