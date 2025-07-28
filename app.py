@@ -2,6 +2,11 @@ import streamlit as st
 import pandas as pd
 import requests
 from io import BytesIO
+from fuzzywuzzy import process
+import folium
+from streamlit_folium import st_folium
+from folium.plugins import MarkerCluster, HeatMap
+import plotly.express as px
 
 # ====== Consultar datos desde GitHub ======
 BASE_URL = "https://raw.githubusercontent.com/Brunomperetti/Rostock/master/"
@@ -10,8 +15,14 @@ BASE_URL = "https://raw.githubusercontent.com/Brunomperetti/Rostock/master/"
 def cargar_archivo_github(archivo):
     url = f"{BASE_URL}{archivo}"
     response = requests.get(url)
-    response.raise_for_status()  # Esto asegurará que la respuesta haya sido exitosa
-    return pd.read_excel(BytesIO(response.content))
+    
+    # Verifica si la solicitud fue exitosa
+    if response.status_code == 200:
+        # Usamos BytesIO para manejar el contenido binario de la respuesta
+        return pd.read_excel(BytesIO(response.content))
+    else:
+        st.error(f"Error al cargar el archivo: {archivo}")
+        return None
 
 # ====== CARGA DE DATOS CON SPINNER ======
 with st.spinner("Cargando datos..."):
@@ -22,47 +33,50 @@ with st.spinner("Cargando datos..."):
     df_cliente_campaña = cargar_archivo_github("Cliente_Campaña_listo_normalizado.xlsx")
     df_base_fria = cargar_archivo_github("base_fria_geocodificado.xlsx")
 
-    # Unificación de clientes y potenciales
-    potenciales = pd.concat([df_lista_pesada, df_cliente_campaña, df_base_fria], ignore_index=True)
-
-    df_clientes_activos['Tipo'] = 'Cliente'
-    potenciales['Tipo'] = 'Potencial'
-
-    # Normalización de provincias y localidades
-    for col in ['Provincia', 'Localidad']:
-        df_clientes_activos[col] = df_clientes_activos[col].str.upper().str.strip()
-        potenciales[col] = potenciales[col].str.upper().str.strip()
-
-    bases_unidas = pd.concat([df_clientes_activos, potenciales], ignore_index=True)
-
-    # === Fuzzy solo una vez ===
-    def normalizar_columna_fuzzy(columna, umbral=90):
-        unicos = columna.dropna().unique()
-        unificados = {}
-        for val in unicos:
-            match, score = process.extractOne(val, unificados.keys()) if unificados else (None, 0)
-            if score >= umbral:
-                unificados[val] = match
-            else:
-                unificados[val] = val
-        return columna.map(unificados)
-
-    if 'Provincia_norm' not in st.session_state:
-        with st.spinner("Normalizando provincias y localidades..."):
-            bases_unidas['Provincia'] = normalizar_columna_fuzzy(bases_unidas['Provincia'])
-            bases_unidas['Localidad'] = normalizar_columna_fuzzy(bases_unidas['Localidad'])
-            st.session_state['Provincia_norm'] = bases_unidas['Provincia']
-            st.session_state['Localidad_norm'] = bases_unidas['Localidad']
-
-            # Normalizar 'Capital Federal' a 'Buenos Aires'
-            bases_unidas['Provincia'] = bases_unidas['Provincia'].replace(['CAPITAL FEDERAL', 'CIUDAD DE BUENOS AIRES'], 'BUENOS AIRES')
-
+    if df_repmotor_geodificado is None or df_lista_pesada is None or df_clientes_activos is None or df_cliente_campaña is None or df_base_fria is None:
+        st.error("No se pudieron cargar los archivos correctamente.")
     else:
-        bases_unidas['Provincia'] = st.session_state['Provincia_norm']
-        bases_unidas['Localidad'] = st.session_state['Localidad_norm']
+        # Unificación de clientes y potenciales
+        potenciales = pd.concat([df_lista_pesada, df_cliente_campaña, df_base_fria], ignore_index=True)
 
-    df_clientes_activos = bases_unidas[bases_unidas['Tipo'] == 'Cliente']
-    potenciales = bases_unidas[bases_unidas['Tipo'] == 'Potencial']
+        df_clientes_activos['Tipo'] = 'Cliente'
+        potenciales['Tipo'] = 'Potencial'
+
+        # Normalización de provincias y localidades
+        for col in ['Provincia', 'Localidad']:
+            df_clientes_activos[col] = df_clientes_activos[col].str.upper().str.strip()
+            potenciales[col] = potenciales[col].str.upper().str.strip()
+
+        bases_unidas = pd.concat([df_clientes_activos, potenciales], ignore_index=True)
+
+        # === Fuzzy solo una vez ===
+        def normalizar_columna_fuzzy(columna, umbral=90):
+            unicos = columna.dropna().unique()
+            unificados = {}
+            for val in unicos:
+                match, score = process.extractOne(val, unificados.keys()) if unificados else (None, 0)
+                if score >= umbral:
+                    unificados[val] = match
+                else:
+                    unificados[val] = val
+            return columna.map(unificados)
+
+        if 'Provincia_norm' not in st.session_state:
+            with st.spinner("Normalizando provincias y localidades..."):
+                bases_unidas['Provincia'] = normalizar_columna_fuzzy(bases_unidas['Provincia'])
+                bases_unidas['Localidad'] = normalizar_columna_fuzzy(bases_unidas['Localidad'])
+                st.session_state['Provincia_norm'] = bases_unidas['Provincia']
+                st.session_state['Localidad_norm'] = bases_unidas['Localidad']
+
+                # Normalizar 'Capital Federal' a 'Buenos Aires'
+                bases_unidas['Provincia'] = bases_unidas['Provincia'].replace(['CAPITAL FEDERAL', 'CIUDAD DE BUENOS AIRES'], 'BUENOS AIRES')
+
+        else:
+            bases_unidas['Provincia'] = st.session_state['Provincia_norm']
+            bases_unidas['Localidad'] = st.session_state['Localidad_norm']
+
+        df_clientes_activos = bases_unidas[bases_unidas['Tipo'] == 'Cliente']
+        potenciales = bases_unidas[bases_unidas['Tipo'] == 'Potencial']
 
 # ====== UI ======
 opciones = ["Mapa", "Mapa de calor", "Gráficos comparativos", "KPIs resumen"]
