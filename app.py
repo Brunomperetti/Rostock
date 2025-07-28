@@ -4,10 +4,10 @@ import folium
 from streamlit_folium import st_folium
 from folium.plugins import MarkerCluster, HeatMap
 from fuzzywuzzy import process
-import requests
 import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.express as px
+import os
 
 # ====== Consultar datos desde GitHub ======
 BASE_URL = "https://raw.githubusercontent.com/Brunomperetti/Rostock/master/"
