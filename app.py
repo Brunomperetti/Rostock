@@ -45,7 +45,7 @@ with st.spinner("Cargando datos..."):
         st.error("No se pudieron cargar los archivos correctamente.")
         st.stop()  # Detener la ejecución si no hay datos
     else:
-        # Unificación de potenciales (sin lista_pesada)
+        # Unificación de potenciales
         potenciales = pd.concat([df_cliente_campaña, df_base_fria], ignore_index=True)
 
         df_clientes_activos['Tipo'] = 'Cliente'
@@ -62,7 +62,6 @@ with st.spinner("Cargando datos..."):
 
         # === Fuzzy matching ===
         def normalizar_columna_fuzzy(columna, umbral=90):
-            from fuzzywuzzy import process
             unicos = columna.dropna().unique()
             unificados = {}
             for val in unicos:
@@ -103,40 +102,40 @@ if seleccion == "Mapa":
         st.subheader("🗺️ Mapa de Clientes y Potenciales")
         m = folium.Map(location=[-38.4161, -63.6167], zoom_start=5, tiles='CartoDB positron')
         
-        # Verificar si las columnas de coordenadas existen
-        if 'lat' not in df_clientes_activos.columns or 'lon' not in df_clientes_activos.columns:
-            st.error("Las columnas 'lat' y 'lon' no están presentes en los datos de clientes.")
-        else:
-            cluster_clientes = MarkerCluster(name='🟢 Clientes').add_to(m)
-            cluster_potenciales = MarkerCluster(name='🔴 Potenciales').add_to(m)
+        # URL del icono personalizado desde GitHub
+        icon_url = "https://raw.githubusercontent.com/Brunomperetti/Rostock/master/icono.jpg"
+        rostock_icon = folium.CustomIcon(icon_image=icon_url, icon_size=(30, 30))
+        
+        cluster_clientes = MarkerCluster(name='🟢 Clientes').add_to(m)
+        cluster_potenciales = MarkerCluster(name='🔴 Potenciales').add_to(m)
 
-            for _, row in df_clientes_activos.iterrows():
+        for _, row in df_clientes_activos.iterrows():
+            if pd.notna(row['lat']) and pd.notna(row['lon']):
+                nombre = row.get('Nombre fantasía', row.get('Nombre', 'Sin nombre'))
+                popup_info = f"✅ Cliente: {nombre}<br>{row.get('Localidad', '')}, {row.get('Provincia', '')}"
+                folium.Marker(
+                    location=[row['lat'], row['lon']], 
+                    popup=popup_info,
+                    icon=rostock_icon  # Icono personalizado para clientes
+                ).add_to(cluster_clientes)
+
+        if 'lat' in potenciales.columns and 'lon' in potenciales.columns:
+            for _, row in potenciales.iterrows():
                 if pd.notna(row['lat']) and pd.notna(row['lon']):
                     nombre = row.get('Nombre fantasía', row.get('Nombre', 'Sin nombre'))
-                    popup_info = f"✅ Cliente: {nombre}<br>{row.get('Localidad', '')}, {row.get('Provincia', '')}"
-                    folium.Marker(
+                    telefono = row.get('Telefono', row.get('Teléfono', 'Sin teléfono'))
+                    popup_info = f"🔴 Potencial: {nombre}<br>{row.get('Localidad', '')}, {row.get('Provincia', '')}<br>📞 {telefono}"
+                    folium.CircleMarker(
                         location=[row['lat'], row['lon']], 
+                        radius=6, 
                         popup=popup_info,
-                        icon=folium.Icon(color='green', icon='user')
-                    ).add_to(cluster_clientes)
+                        color='red', 
+                        fill=True, 
+                        fill_color='red'
+                    ).add_to(cluster_potenciales)
 
-            if 'lat' in potenciales.columns and 'lon' in potenciales.columns:
-                for _, row in potenciales.iterrows():
-                    if pd.notna(row['lat']) and pd.notna(row['lon']):
-                        nombre = row.get('Nombre fantasía', row.get('Nombre', 'Sin nombre'))
-                        telefono = row.get('Telefono', row.get('Teléfono', 'Sin teléfono'))
-                        popup_info = f"🔴 Potencial: {nombre}<br>{row.get('Localidad', '')}, {row.get('Provincia', '')}<br>📞 {telefono}"
-                        folium.CircleMarker(
-                            location=[row['lat'], row['lon']], 
-                            radius=6, 
-                            popup=popup_info,
-                            color='red', 
-                            fill=True, 
-                            fill_color='red'
-                        ).add_to(cluster_potenciales)
-
-            folium.LayerControl().add_to(m)
-            st_folium(m, width=800, height=600)
+        folium.LayerControl().add_to(m)
+        st_folium(m, width=800, height=600)
 
 # ====== HEATMAP ======
 elif seleccion == "Mapa de calor":
@@ -144,7 +143,6 @@ elif seleccion == "Mapa de calor":
         st.subheader("🔥 Mapa de Calor de Clientes y Potenciales")
         m_heat = folium.Map(location=[-38.4161, -63.6167], zoom_start=5, tiles='CartoDB positron')
         
-        # Verificar columnas antes de crear el heatmap
         if 'lat' in df_clientes_activos.columns and 'lon' in df_clientes_activos.columns:
             HeatMap(
                 df_clientes_activos[['lat', 'lon']].dropna().values.tolist(),
@@ -169,7 +167,6 @@ elif seleccion == "Gráficos comparativos":
     with st.expander("📈 Ver gráficos comparativos", expanded=True):
         st.markdown("### Clientes vs Potenciales por Provincia")
         
-        # Verificar columnas necesarias
         if 'Provincia' in bases_unidas.columns and 'Tipo' in bases_unidas.columns:
             prov_counts = bases_unidas.groupby(['Provincia', 'Tipo']).size().reset_index(name='Cantidad')
             fig = px.bar(
@@ -244,7 +241,7 @@ elif seleccion == "KPIs resumen":
             resumen_prov['Total'] = resumen_prov.sum(axis=1)
             resumen_prov['% Clientes'] = (resumen_prov.get('Cliente', 0) / resumen_prov['Total'] * 100).round(2)
 
-            # Reemplazar "Capital Federal" por "Buenos Aires"
+            # Reemplazar nombres de provincias
             resumen_prov.index = resumen_prov.index.str.replace('CAPITAL FEDERAL', 'BUENOS AIRES')
             resumen_prov.index = resumen_prov.index.str.replace('CIUDAD DE BUENOS AIRES', 'BUENOS AIRES')
             resumen_prov.index = resumen_prov.index.str.replace('CABA', 'BUENOS AIRES')
