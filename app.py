@@ -1,21 +1,17 @@
 import streamlit as st
 import pandas as pd
-import folium
-from streamlit_folium import st_folium
-from folium.plugins import MarkerCluster, HeatMap
-from fuzzywuzzy import process
-import matplotlib.pyplot as plt
-import seaborn as sns
-import plotly.express as px
-import os
+import requests
+from io import BytesIO
 
 # ====== Consultar datos desde GitHub ======
 BASE_URL = "https://raw.githubusercontent.com/Brunomperetti/Rostock/master/"
 
-# Función para cargar archivos Excel desde GitHub
+# Función para cargar archivos Excel desde GitHub usando requests
 def cargar_archivo_github(archivo):
     url = f"{BASE_URL}{archivo}"
-    return pd.read_excel(url)
+    response = requests.get(url)
+    response.raise_for_status()  # Esto asegurará que la respuesta haya sido exitosa
+    return pd.read_excel(BytesIO(response.content))
 
 # ====== CARGA DE DATOS CON SPINNER ======
 with st.spinner("Cargando datos..."):
@@ -171,5 +167,6 @@ elif seleccion == "KPIs resumen":
 
         styled_table = resumen_prov.style.applymap(color_fila, subset=['% Clientes'])
         st.dataframe(styled_table, use_container_width=True)
+
 
 
