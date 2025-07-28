@@ -48,9 +48,9 @@ with st.spinner("Cargando datos..."):
     datos['Provincia'] = datos['Provincia'].replace(
         ['CAPITAL FEDERAL', 'CIUDAD DE BUENOS AIRES', 'CABA'], 'BUENOS AIRES')
 
-    # Limpieza de datos faltantes
-    datos['Dirección'] = datos.get('Dirección', '') or datos.get('Direccion', '')
-    datos['Telefono'] = datos.get('Telefono', '') or datos.get('Teléfono', '')
+    # Manejo seguro de columnas de dirección y teléfono
+    datos['Dirección'] = datos['Dirección'].fillna('') if 'Dirección' in datos.columns else datos.get('Direccion', pd.Series('', index=datos.index))
+    datos['Telefono'] = datos['Telefono'].fillna('') if 'Telefono' in datos.columns else datos.get('Teléfono', pd.Series('', index=datos.index))
 
 # Filtro por provincia
 provincias = ['Todas'] + sorted(datos['Provincia'].dropna().unique())
@@ -69,7 +69,7 @@ vista = st.sidebar.radio(
 # Función para crear popups detallados
 def crear_popup(row):
     return f"""
-    <div style="font-family: Arial; max-width: 250px;">
+    <div style="font-family: Arial; max-width: 300px;">
         <h4 style="margin-bottom: 5px; color: {'#2ecc71' if row['Tipo'] == 'Cliente' else '#e74c3c'}">
             {'✅ ' if row['Tipo'] == 'Cliente' else '🔴 '}{row['Nombre']}
         </h4>
@@ -104,7 +104,7 @@ if vista == "🗺️ Mapa":
         if pd.notna(row['lat']) and pd.notna(row['lon']):
             folium.Marker(
                 [row['lat'], row['lon']],
-                popup=crear_popup(row),
+                popup=folium.Popup(crear_popup(row), max_width=300),
                 icon=rostock_icon
             ).add_to(cluster_clientes)
     
@@ -114,7 +114,7 @@ if vista == "🗺️ Mapa":
             folium.CircleMarker(
                 [row['lat'], row['lon']],
                 radius=6,
-                popup=crear_popup(row),
+                popup=folium.Popup(crear_popup(row), max_width=300),
                 color='red',
                 fill=True,
                 fill_color='red'
@@ -134,20 +134,22 @@ elif vista == "🔥 Mapa de Calor":
     )
     
     # Heatmap clientes
-    HeatMap(
-        datos[datos['Tipo'] == 'Cliente'][['lat', 'lon']].dropna().values,
-        name='Clientes',
-        radius=15,
-        gradient={0.4: 'lime', 0.6: 'green', 1: 'darkgreen'}
-    ).add_to(m_heat)
+    if not datos[datos['Tipo'] == 'Cliente'][['lat', 'lon']].empty:
+        HeatMap(
+            datos[datos['Tipo'] == 'Cliente'][['lat', 'lon']].dropna().values,
+            name='Clientes',
+            radius=15,
+            gradient={0.4: 'lime', 0.6: 'green', 1: 'darkgreen'}
+        ).add_to(m_heat)
     
     # Heatmap potenciales
-    HeatMap(
-        datos[datos['Tipo'] == 'Potencial'][['lat', 'lon']].dropna().values,
-        name='Potenciales',
-        radius=15,
-        gradient={0.4: 'orange', 0.6: 'red', 1: 'darkred'}
-    ).add_to(m_heat)
+    if not datos[datos['Tipo'] == 'Potencial'][['lat', 'lon']].empty:
+        HeatMap(
+            datos[datos['Tipo'] == 'Potencial'][['lat', 'lon']].dropna().values,
+            name='Potenciales',
+            radius=15,
+            gradient={0.4: 'orange', 0.6: 'red', 1: 'darkred'}
+        ).add_to(m_heat)
     
     folium.LayerControl().add_to(m_heat)
     st_folium(m_heat, width=1200, height=700)
@@ -158,52 +160,67 @@ elif vista == "📊 Gráficos":
     
     # Gráfico por provincia
     st.subheader("Distribución por Provincia")
-    fig_prov = px.bar(
-        datos.groupby(['Provincia', 'Tipo']).size().reset_index(name='Cantidad'),
-        x='Provincia',
-        y='Cantidad',
-        color='Tipo',
-        barmode='group',
-        color_discrete_map={'Cliente': '#2ecc71', 'Potencial': '#e74c3c'}
-    )
-    st.plotly_chart(fig_prov, use_container_width=True)
+    try:
+        fig_prov = px.bar(
+            datos.groupby(['Provincia', 'Tipo']).size().reset_index(name='Cantidad'),
+            x='Provincia',
+            y='Cantidad',
+            color='Tipo',
+            barmode='group',
+            color_discrete_map={'Cliente': '#2ecc71', 'Potencial': '#e74c3c'}
+        )
+        st.plotly_chart(fig_prov, use_container_width=True)
+    except Exception as e:
+        st.error(f"No se pudo generar el gráfico: {str(e)}")
     
     # Gráfico de torta
     st.subheader("Proporción Total")
-    fig_torta = px.pie(
-        datos['Tipo'].value_counts().reset_index(),
-        names='Tipo',
-        values='count',
-        color='Tipo',
-        color_discrete_map={'Cliente': '#2ecc71', 'Potencial': '#e74c3c'}
-    )
-    st.plotly_chart(fig_torta, use_container_width=True)
+    try:
+        fig_torta = px.pie(
+            datos['Tipo'].value_counts().reset_index(),
+            names='Tipo',
+            values='count',
+            color='Tipo',
+            color_discrete_map={'Cliente': '#2ecc71', 'Potencial': '#e74c3c'}
+        )
+        st.plotly_chart(fig_torta, use_container_width=True)
+    except Exception as e:
+        st.error(f"No se pudo generar el gráfico: {str(e)}")
 
 # ========== VISTA DE KPIs ==========
 elif vista == "📈 KPIs":
     st.title("Indicadores Clave - Argentina")
     
     # Métricas básicas
-    total_clientes = datos[datos['Tipo'] == 'Cliente'].shape[0]
-    total_potenciales = datos[datos['Tipo'] == 'Potencial'].shape[0]
+    try:
+        total_clientes = datos[datos['Tipo'] == 'Cliente'].shape[0]
+        total_potenciales = datos[datos['Tipo'] == 'Potencial'].shape[0]
+        
+        cols = st.columns(3)
+        cols[0].metric("Clientes", total_clientes)
+        cols[1].metric("Potenciales", total_potenciales)
+        cols[2].metric("Ratio", 
+                      f"{total_clientes/(total_clientes+total_potenciales)*100:.1f}%" 
+                      if (total_clientes+total_potenciales) > 0 else "0%")
+    except Exception as e:
+        st.error(f"Error calculando métricas: {str(e)}")
     
-    cols = st.columns(3)
-    cols[0].metric("Clientes", total_clientes)
-    cols[1].metric("Potenciales", total_potenciales)
-    cols[2].metric("Ratio", f"{total_clientes/(total_clientes+total_potenciales)*100:.1f}%" if (total_clientes+total_potenciales) > 0 else "0%")
-    
-    # Resumen por provincia seguro
+    # Resumen por provincia
+    st.subheader("Resumen por Provincia")
     try:
         resumen = datos.pivot_table(index='Provincia', columns='Tipo', aggfunc='size', fill_value=0)
         resumen['Total'] = resumen.sum(axis=1)
-        resumen['% Clientes'] = (resumen.get('Cliente', 0) / resumen['Total'] * 100).round(1)
-        st.dataframe(resumen.sort_values('% Clientes', ascending=False))
-    except Exception:
-        st.dataframe(datos.groupby(['Provincia', 'Tipo']).size().unstack(fill_value=0))
+        if 'Cliente' in resumen.columns:
+            resumen['% Clientes'] = (resumen['Cliente'] / resumen['Total'] * 100).round(1)
+        st.dataframe(resumen.sort_values('Total', ascending=False))
+    except Exception as e:
+        st.error(f"No se pudo generar el resumen: {str(e)}")
     
     # Tabla completa con todos los datos
     st.subheader("Datos Completos")
-    columnas_a_mostrar = ['Nombre', 'Provincia', 'Localidad', 'Dirección', 'Telefono', 'Tipo']
-    st.dataframe(datos[columnas_a_mostrar].sort_values('Provincia'))
-
-
+    try:
+        columnas_a_mostrar = ['Nombre', 'Provincia', 'Localidad', 'Dirección', 'Telefono', 'Tipo']
+        columnas_disponibles = [col for col in columnas_a_mostrar if col in datos.columns]
+        st.dataframe(datos[columnas_disponibles].sort_values('Provincia'))
+    except Exception as e:
+        st.error(f"No se pudo mostrar la tabla completa: {str(e)}")
