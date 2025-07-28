@@ -9,30 +9,22 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.express as px
 
-# ====== Consultar datos desde Google Apps Script ======
-WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwFAg6QgmvN4MSs4-LzKzBTSExC21SYN87dbBnMu-Ic27WS8gIMLNZCncR_aYc49f97/exec"
+# ====== Consultar datos desde GitHub ======
+BASE_URL = "https://raw.githubusercontent.com/Brunomperetti/Rostock/master/"
 
-# Función para realizar solicitudes GET a la URL del Google Apps Script y obtener los datos
-def obtener_datos_google_sheet():
-    # Realizar la solicitud GET
-    response = requests.get(WEB_APP_URL)
-    
-    # Verificar si la solicitud fue exitosa
-    if response.status_code == 200:
-        # Convertir la respuesta JSON a un DataFrame de pandas
-        return pd.DataFrame(response.json())
-    else:
-        st.error(f"Error al cargar los datos desde Google Sheets: {response.status_code}")
-        return pd.DataFrame()  # Retorna un DataFrame vacío en caso de error
+# Función para cargar archivos Excel desde GitHub
+def cargar_archivo_github(archivo):
+    url = f"{BASE_URL}{archivo}"
+    return pd.read_excel(url)
 
 # ====== CARGA DE DATOS CON SPINNER ======
 with st.spinner("Cargando datos..."):
-    # Consultar los datos desde Google Apps Script (utilizando Web App)
-    df_repmotor_geodificado = obtener_datos_google_sheet()
-    df_lista_pesada = obtener_datos_google_sheet()
-    df_clientes_activos = obtener_datos_google_sheet()
-    df_cliente_campaña = obtener_datos_google_sheet()
-    df_base_fria = obtener_datos_google_sheet()
+    # Consultar los datos desde GitHub
+    df_repmotor_geodificado = cargar_archivo_github("rep_motor_geodificado_normalizado.xlsx")
+    df_lista_pesada = cargar_archivo_github("lista_pesada.xlsx")
+    df_clientes_activos = cargar_archivo_github("clientes_activos_geocodificados.xlsx")
+    df_cliente_campaña = cargar_archivo_github("Cliente_Campaña_listo_normalizado.xlsx")
+    df_base_fria = cargar_archivo_github("base_fria_geocodificado.xlsx")
 
     # Unificación de clientes y potenciales
     potenciales = pd.concat([df_lista_pesada, df_cliente_campaña, df_base_fria], ignore_index=True)
@@ -179,5 +171,6 @@ elif seleccion == "KPIs resumen":
 
         styled_table = resumen_prov.style.applymap(color_fila, subset=['% Clientes'])
         st.dataframe(styled_table, use_container_width=True)
+
 
 
