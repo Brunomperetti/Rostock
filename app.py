@@ -4,6 +4,8 @@ import requests
 from io import BytesIO
 import folium
 from folium.plugins import MarkerCluster, HeatMap
+from streamlit_folium import st_folium  # Faltaba importar esto
+from fuzzywuzzy import process  # Faltaba importar esto para el fuzzy matching
 import plotly.express as px
 
 # URL base del repositorio en GitHub
@@ -27,6 +29,9 @@ def cargar_archivo_github(archivo):
         st.error(f"Error al descargar el archivo {archivo}: {e}")
         return None
 
+# Configuración inicial de la página
+st.set_page_config(layout="wide")
+
 # ====== CARGA DE DATOS CON SPINNER ======
 with st.spinner("Cargando datos..."):
     # Consultar los datos desde GitHub
@@ -39,6 +44,7 @@ with st.spinner("Cargando datos..."):
     # Verificar si los archivos fueron cargados correctamente
     if df_repmotor_geodificado is None or df_lista_pesada is None or df_clientes_activos is None or df_cliente_campaña is None or df_base_fria is None:
         st.error("No se pudieron cargar los archivos correctamente.")
+        st.stop()  # Detener la ejecución si no hay datos
     else:
         # Unificación de clientes y potenciales
         potenciales = pd.concat([df_lista_pesada, df_cliente_campaña, df_base_fria], ignore_index=True)
@@ -48,13 +54,16 @@ with st.spinner("Cargando datos..."):
 
         # Normalización de provincias y localidades
         for col in ['Provincia', 'Localidad']:
-            df_clientes_activos[col] = df_clientes_activos[col].str.upper().str.strip()
-            potenciales[col] = potenciales[col].str.upper().str.strip()
+            if col in df_clientes_activos.columns:
+                df_clientes_activos[col] = df_clientes_activos[col].astype(str).str.upper().str.strip()
+            if col in potenciales.columns:
+                potenciales[col] = potenciales[col].astype(str).str.upper().str.strip()
 
         bases_unidas = pd.concat([df_clientes_activos, potenciales], ignore_index=True)
 
-        # === Fuzzy solo una vez ===
+        # === Fuzzy matching ===
         def normalizar_columna_fuzzy(columna, umbral=90):
+            from fuzzywuzzy import process
             unicos = columna.dropna().unique()
             unificados = {}
             for val in unicos:
@@ -67,14 +76,17 @@ with st.spinner("Cargando datos..."):
 
         if 'Provincia_norm' not in st.session_state:
             with st.spinner("Normalizando provincias y localidades..."):
-                bases_unidas['Provincia'] = normalizar_columna_fuzzy(bases_unidas['Provincia'])
-                bases_unidas['Localidad'] = normalizar_columna_fuzzy(bases_unidas['Localidad'])
+                if 'Provincia' in bases_unidas.columns:
+                    bases_unidas['Provincia'] = normalizar_columna_fuzzy(bases_unidas['Provincia'])
+                if 'Localidad' in bases_unidas.columns:
+                    bases_unidas['Localidad'] = normalizar_columna_fuzzy(bases_unidas['Localidad'])
+                
                 st.session_state['Provincia_norm'] = bases_unidas['Provincia']
                 st.session_state['Localidad_norm'] = bases_unidas['Localidad']
 
                 # Normalizar 'Capital Federal' a 'Buenos Aires'
-                bases_unidas['Provincia'] = bases_unidas['Provincia'].replace(['CAPITAL FEDERAL', 'CIUDAD DE BUENOS AIRES'], 'BUENOS AIRES')
-
+                bases_unidas['Provincia'] = bases_unidas['Provincia'].replace(
+                    ['CAPITAL FEDERAL', 'CIUDAD DE BUENOS AIRES', 'CABA'], 'BUENOS AIRES')
         else:
             bases_unidas['Provincia'] = st.session_state['Provincia_norm']
             bases_unidas['Localidad'] = st.session_state['Localidad_norm']
@@ -91,36 +103,65 @@ if seleccion == "Mapa":
     with st.spinner("Cargando mapa..."):
         st.subheader("🗺️ Mapa de Clientes y Potenciales")
         m = folium.Map(location=[-38.4161, -63.6167], zoom_start=5, tiles='CartoDB positron')
-        rostock_icon = folium.CustomIcon(icon_image='icono.jpg', icon_size=(30, 30))
-        cluster_clientes = MarkerCluster(name='🟢 Clientes').add_to(m)
-        cluster_potenciales = MarkerCluster(name='🔴 Potenciales').add_to(m)
+        
+        # Verificar si las columnas de coordenadas existen
+        if 'lat' not in df_clientes_activos.columns or 'lon' not in df_clientes_activos.columns:
+            st.error("Las columnas 'lat' y 'lon' no están presentes en los datos de clientes.")
+        else:
+            cluster_clientes = MarkerCluster(name='🟢 Clientes').add_to(m)
+            cluster_potenciales = MarkerCluster(name='🔴 Potenciales').add_to(m)
 
-        for _, row in df_clientes_activos.iterrows():
-            if pd.notna(row['lat']) and pd.notna(row['lon']):
-                popup_info = f"✅ Cliente: {row.get('Nombre fantasía', 'Sin nombre')}<br>{row['Localidad']}, {row['Provincia']}"
-                folium.Marker(location=[row['lat'], row['lon']], popup=popup_info, icon=rostock_icon).add_to(cluster_clientes)
+            for _, row in df_clientes_activos.iterrows():
+                if pd.notna(row['lat']) and pd.notna(row['lon']):
+                    nombre = row.get('Nombre fantasía', row.get('Nombre', 'Sin nombre'))
+                    popup_info = f"✅ Cliente: {nombre}<br>{row.get('Localidad', '')}, {row.get('Provincia', '')}"
+                    folium.Marker(
+                        location=[row['lat'], row['lon']], 
+                        popup=popup_info,
+                        icon=folium.Icon(color='green', icon='user')
+                    ).add_to(cluster_clientes)
 
-        for _, row in potenciales.iterrows():
-            if pd.notna(row['lat']) and pd.notna(row['lon']):
-                nombre = row.get('Nombre fantasía') or row.get('Nombre') or 'Sin nombre'
-                telefono = row.get('Telefono') or 'Sin teléfono'
-                popup_info = f"🔴 Potencial: {nombre}<br>{row['Localidad']}, {row['Provincia']}<br>📞 {telefono}"
-                folium.CircleMarker(location=[row['lat'], row['lon']], radius=6, popup=popup_info,
-                                    color='red', fill=True, fill_color='red').add_to(cluster_potenciales)
+            if 'lat' in potenciales.columns and 'lon' in potenciales.columns:
+                for _, row in potenciales.iterrows():
+                    if pd.notna(row['lat']) and pd.notna(row['lon']):
+                        nombre = row.get('Nombre fantasía', row.get('Nombre', 'Sin nombre'))
+                        telefono = row.get('Telefono', row.get('Teléfono', 'Sin teléfono'))
+                        popup_info = f"🔴 Potencial: {nombre}<br>{row.get('Localidad', '')}, {row.get('Provincia', '')}<br>📞 {telefono}"
+                        folium.CircleMarker(
+                            location=[row['lat'], row['lon']], 
+                            radius=6, 
+                            popup=popup_info,
+                            color='red', 
+                            fill=True, 
+                            fill_color='red'
+                        ).add_to(cluster_potenciales)
 
-        st_folium(m, width=800, height=600)
+            folium.LayerControl().add_to(m)
+            st_folium(m, width=800, height=600)
 
 # ====== HEATMAP ======
 elif seleccion == "Mapa de calor":
     with st.spinner("Generando mapa de calor..."):
         st.subheader("🔥 Mapa de Calor de Clientes y Potenciales")
         m_heat = folium.Map(location=[-38.4161, -63.6167], zoom_start=5, tiles='CartoDB positron')
-        HeatMap(df_clientes_activos[['lat', 'lon']].dropna().values.tolist(),
-                name='🟢 Clientes', radius=10,
-                gradient={0.4: 'lime', 0.65: 'green', 1: 'darkgreen'}).add_to(m_heat)
-        HeatMap(potenciales[['lat', 'lon']].dropna().values.tolist(),
-                name='🔴 Potenciales', radius=10,
-                gradient={0.4: 'orange', 0.65: 'red', 1: 'darkred'}).add_to(m_heat)
+        
+        # Verificar columnas antes de crear el heatmap
+        if 'lat' in df_clientes_activos.columns and 'lon' in df_clientes_activos.columns:
+            HeatMap(
+                df_clientes_activos[['lat', 'lon']].dropna().values.tolist(),
+                name='🟢 Clientes', 
+                radius=10,
+                gradient={0.4: 'lime', 0.65: 'green', 1: 'darkgreen'}
+            ).add_to(m_heat)
+        
+        if 'lat' in potenciales.columns and 'lon' in potenciales.columns:
+            HeatMap(
+                potenciales[['lat', 'lon']].dropna().values.tolist(),
+                name='🔴 Potenciales', 
+                radius=10,
+                gradient={0.4: 'orange', 0.65: 'red', 1: 'darkred'}
+            ).add_to(m_heat)
+        
         folium.LayerControl().add_to(m_heat)
         st_folium(m_heat, width=800, height=600)
 
@@ -128,30 +169,61 @@ elif seleccion == "Mapa de calor":
 elif seleccion == "Gráficos comparativos":
     with st.expander("📈 Ver gráficos comparativos", expanded=True):
         st.markdown("### Clientes vs Potenciales por Provincia")
-        prov_counts = bases_unidas.groupby(['Provincia', 'Tipo']).size().reset_index(name='Cantidad')
-        fig = px.bar(prov_counts, x='Cantidad', y='Provincia', color='Tipo', orientation='h', barmode='group',
-                     color_discrete_map={'Cliente': '#2ecc71', 'Potencial': '#e74c3c'}, height=600)
-        fig.update_layout(yaxis={'categoryorder': 'total ascending'})
-        st.plotly_chart(fig, use_container_width=True)
+        
+        # Verificar columnas necesarias
+        if 'Provincia' in bases_unidas.columns and 'Tipo' in bases_unidas.columns:
+            prov_counts = bases_unidas.groupby(['Provincia', 'Tipo']).size().reset_index(name='Cantidad')
+            fig = px.bar(
+                prov_counts, 
+                x='Cantidad', 
+                y='Provincia', 
+                color='Tipo', 
+                orientation='h', 
+                barmode='group',
+                color_discrete_map={'Cliente': '#2ecc71', 'Potencial': '#e74c3c'}, 
+                height=600
+            )
+            fig.update_layout(yaxis={'categoryorder': 'total ascending'})
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("No se encontraron las columnas necesarias para generar el gráfico por provincia.")
 
         st.markdown("### Top 10 Localidades con más Clientes y Potenciales")
-        loc_counts = bases_unidas.groupby(['Localidad', 'Tipo']).size().reset_index(name='Cantidad')
-        top_localidades = loc_counts.groupby('Localidad')['Cantidad'].sum().nlargest(10).index
-        loc_counts_top = loc_counts[loc_counts['Localidad'].isin(top_localidades)]
-        fig2 = px.bar(loc_counts_top, x='Cantidad', y='Localidad', color='Tipo', orientation='h', barmode='group',
-                      color_discrete_map={'Cliente': '#2ecc71', 'Potencial': '#e74c3c'}, height=600)
-        fig2.update_layout(yaxis={'categoryorder': 'total ascending'})
-        st.plotly_chart(fig2, use_container_width=True)
+        if 'Localidad' in bases_unidas.columns and 'Tipo' in bases_unidas.columns:
+            loc_counts = bases_unidas.groupby(['Localidad', 'Tipo']).size().reset_index(name='Cantidad')
+            top_localidades = loc_counts.groupby('Localidad')['Cantidad'].sum().nlargest(10).index
+            loc_counts_top = loc_counts[loc_counts['Localidad'].isin(top_localidades)]
+            fig2 = px.bar(
+                loc_counts_top, 
+                x='Cantidad', 
+                y='Localidad', 
+                color='Tipo', 
+                orientation='h', 
+                barmode='group',
+                color_discrete_map={'Cliente': '#2ecc71', 'Potencial': '#e74c3c'}, 
+                height=600
+            )
+            fig2.update_layout(yaxis={'categoryorder': 'total ascending'})
+            st.plotly_chart(fig2, use_container_width=True)
+        else:
+            st.warning("No se encontraron las columnas necesarias para generar el gráfico por localidad.")
 
         st.markdown("### Proporción Global de Clientes y Potenciales")
-        tipo_counts = bases_unidas['Tipo'].value_counts().reset_index()
-        tipo_counts.columns = ['Tipo', 'Cantidad']
-        fig3 = px.pie(tipo_counts, names='Tipo', values='Cantidad',
-                      color='Tipo',
-                      color_discrete_map={'Cliente': '#2ecc71', 'Potencial': '#e74c3c'},
-                      hole=0.4)
-        fig3.update_traces(textinfo='percent+label')
-        st.plotly_chart(fig3, use_container_width=True)
+        if 'Tipo' in bases_unidas.columns:
+            tipo_counts = bases_unidas['Tipo'].value_counts().reset_index()
+            tipo_counts.columns = ['Tipo', 'Cantidad']
+            fig3 = px.pie(
+                tipo_counts, 
+                names='Tipo', 
+                values='Cantidad',
+                color='Tipo',
+                color_discrete_map={'Cliente': '#2ecc71', 'Potencial': '#e74c3c'},
+                hole=0.4
+            )
+            fig3.update_traces(textinfo='percent+label')
+            st.plotly_chart(fig3, use_container_width=True)
+        else:
+            st.warning("No se encontró la columna 'Tipo' para generar el gráfico de proporción.")
 
 # ====== KPIs RESUMEN ======
 elif seleccion == "KPIs resumen":
@@ -168,24 +240,32 @@ elif seleccion == "KPIs resumen":
         col4.metric("✅ % Clientes", f"{porcentaje_clientes:.2f}%")
 
         st.markdown("### Clientes y Potenciales por Provincia (Tabla con semáforo)")
-        resumen_prov = bases_unidas.groupby(['Provincia', 'Tipo']).size().unstack(fill_value=0)
-        resumen_prov['Total'] = resumen_prov.sum(axis=1)
-        resumen_prov['% Clientes'] = (resumen_prov['Cliente'] / resumen_prov['Total'] * 100).round(2)
+        if 'Provincia' in bases_unidas.columns and 'Tipo' in bases_unidas.columns:
+            resumen_prov = bases_unidas.groupby(['Provincia', 'Tipo']).size().unstack(fill_value=0)
+            resumen_prov['Total'] = resumen_prov.sum(axis=1)
+            resumen_prov['% Clientes'] = (resumen_prov.get('Cliente', 0) / resumen_prov['Total'] * 100).round(2)
 
-        # Reemplazar "Capital Federal" por "Buenos Aires"
-        resumen_prov = resumen_prov.rename(index={'CAPITAL FEDERAL': 'BUENOS AIRES'})
+            # Reemplazar "Capital Federal" por "Buenos Aires"
+            resumen_prov.index = resumen_prov.index.str.replace('CAPITAL FEDERAL', 'BUENOS AIRES')
+            resumen_prov.index = resumen_prov.index.str.replace('CIUDAD DE BUENOS AIRES', 'BUENOS AIRES')
+            resumen_prov.index = resumen_prov.index.str.replace('CABA', 'BUENOS AIRES')
 
-        def color_fila(valor):
-            if valor >= 70:
-                return 'background-color: #b6fcb6'
-            elif valor >= 40:
-                return 'background-color: #fff3b0'
-            else:
-                return 'background-color: #fcb6b6'
+            # Función para colorear las filas
+            def color_fila(val):
+                color = ''
+                if isinstance(val, (int, float)):
+                    if val >= 70:
+                        color = 'background-color: #b6fcb6'  # Verde claro
+                    elif val >= 40:
+                        color = 'background-color: #fff3b0'  # Amarillo
+                    else:
+                        color = 'background-color: #fcb6b6'  # Rojo claro
+                return color
 
-        styled_table = resumen_prov.style.applymap(color_fila, subset=['% Clientes'])
-        st.dataframe(styled_table, use_container_width=True)
-
+            styled_table = resumen_prov.style.applymap(color_fila, subset=['% Clientes'])
+            st.dataframe(styled_table, use_container_width=True)
+        else:
+            st.warning("No se encontraron las columnas necesarias para generar la tabla de provincias.")
 
 
 
