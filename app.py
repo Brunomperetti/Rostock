@@ -10,7 +10,7 @@ import seaborn as sns
 import plotly.express as px
 
 # ====== Consultar datos desde Google Apps Script ======
-WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxpXAf-jrE74otzQHvRdxndr6Da0V3EZytPPvautxYWZeFCflMMpyi08d_Sq_gddfrf/exec"
+WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwFAg6QgmvN4MSs4-LzKzBTSExC21SYN87dbBnMu-Ic27WS8gIMLNZCncR_aYc49f97/exec"
 
 # Función para realizar solicitudes GET a la URL del Google Apps Script y obtener los datos
 def obtener_datos_google_sheet():
