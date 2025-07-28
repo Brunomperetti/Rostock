@@ -4,8 +4,8 @@ import requests
 from io import BytesIO
 import folium
 from folium.plugins import MarkerCluster, HeatMap
-from streamlit_folium import st_folium  # Faltaba importar esto
-from fuzzywuzzy import process  # Faltaba importar esto para el fuzzy matching
+from streamlit_folium import st_folium
+from fuzzywuzzy import process
 import plotly.express as px
 
 # URL base del repositorio en GitHub
@@ -36,18 +36,17 @@ st.set_page_config(layout="wide")
 with st.spinner("Cargando datos..."):
     # Consultar los datos desde GitHub
     df_repmotor_geodificado = cargar_archivo_github("rep_motor_geodificado_normalizado.xlsx")
-    df_lista_pesada = cargar_archivo_github("lista_pesada.xlsx")
     df_clientes_activos = cargar_archivo_github("clientes_activos_geocodificados.xlsx")
     df_cliente_campaña = cargar_archivo_github("Cliente_Campaña_listo_normalizado.xlsx")
     df_base_fria = cargar_archivo_github("base_fria_geocodificado.xlsx")
 
     # Verificar si los archivos fueron cargados correctamente
-    if df_repmotor_geodificado is None or df_lista_pesada is None or df_clientes_activos is None or df_cliente_campaña is None or df_base_fria is None:
+    if df_repmotor_geodificado is None or df_clientes_activos is None or df_cliente_campaña is None or df_base_fria is None:
         st.error("No se pudieron cargar los archivos correctamente.")
         st.stop()  # Detener la ejecución si no hay datos
     else:
-        # Unificación de clientes y potenciales
-        potenciales = pd.concat([df_lista_pesada, df_cliente_campaña, df_base_fria], ignore_index=True)
+        # Unificación de potenciales (sin lista_pesada)
+        potenciales = pd.concat([df_cliente_campaña, df_base_fria], ignore_index=True)
 
         df_clientes_activos['Tipo'] = 'Cliente'
         potenciales['Tipo'] = 'Potencial'
@@ -266,6 +265,5 @@ elif seleccion == "KPIs resumen":
             st.dataframe(styled_table, use_container_width=True)
         else:
             st.warning("No se encontraron las columnas necesarias para generar la tabla de provincias.")
-
 
 
