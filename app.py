@@ -2,6 +2,9 @@ import streamlit as st
 import pandas as pd
 import requests
 from io import BytesIO
+import folium
+from folium.plugins import MarkerCluster, HeatMap
+import plotly.express as px
 
 # URL base del repositorio en GitHub
 BASE_URL = "https://raw.githubusercontent.com/Brunomperetti/Rostock/master/"
@@ -141,9 +144,47 @@ elif seleccion == "Gráficos comparativos":
         st.plotly_chart(fig2, use_container_width=True)
 
         st.markdown("### Proporción Global de Clientes y Potenciales")
-        tipo_counts = bases_unidas['Tipo'].value_counts()
-        fig3 = px.pie(values=tipo_counts, names=tipo_counts.index, title='Proporción de Clientes vs Potenciales')
+        tipo_counts = bases_unidas['Tipo'].value_counts().reset_index()
+        tipo_counts.columns = ['Tipo', 'Cantidad']
+        fig3 = px.pie(tipo_counts, names='Tipo', values='Cantidad',
+                      color='Tipo',
+                      color_discrete_map={'Cliente': '#2ecc71', 'Potencial': '#e74c3c'},
+                      hole=0.4)
+        fig3.update_traces(textinfo='percent+label')
         st.plotly_chart(fig3, use_container_width=True)
+
+# ====== KPIs RESUMEN ======
+elif seleccion == "KPIs resumen":
+    with st.expander("📋 Ver KPIs resumen", expanded=True):
+        total_clientes = df_clientes_activos.shape[0]
+        total_potenciales = potenciales.shape[0]
+        total_general = bases_unidas.shape[0]
+        porcentaje_clientes = (total_clientes / total_general) * 100 if total_general > 0 else 0
+
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("🟢 Clientes Actuales", total_clientes)
+        col2.metric("🔴 Potenciales", total_potenciales)
+        col3.metric("📊 Total General", total_general)
+        col4.metric("✅ % Clientes", f"{porcentaje_clientes:.2f}%")
+
+        st.markdown("### Clientes y Potenciales por Provincia (Tabla con semáforo)")
+        resumen_prov = bases_unidas.groupby(['Provincia', 'Tipo']).size().unstack(fill_value=0)
+        resumen_prov['Total'] = resumen_prov.sum(axis=1)
+        resumen_prov['% Clientes'] = (resumen_prov['Cliente'] / resumen_prov['Total'] * 100).round(2)
+
+        # Reemplazar "Capital Federal" por "Buenos Aires"
+        resumen_prov = resumen_prov.rename(index={'CAPITAL FEDERAL': 'BUENOS AIRES'})
+
+        def color_fila(valor):
+            if valor >= 70:
+                return 'background-color: #b6fcb6'
+            elif valor >= 40:
+                return 'background-color: #fff3b0'
+            else:
+                return 'background-color: #fcb6b6'
+
+        styled_table = resumen_prov.style.applymap(color_fila, subset=['% Clientes'])
+        st.dataframe(styled_table, use_container_width=True)
 
 
 
