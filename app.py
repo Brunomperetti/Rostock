@@ -173,4 +173,3 @@ elif seleccion == "KPIs resumen":
         st.dataframe(styled_table, use_container_width=True)
 
 
-
