@@ -10,7 +10,7 @@ import seaborn as sns
 import plotly.express as px
 
 # ====== Consultar datos desde Google Apps Script ======
-WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzEPDyzQsLuB26d3JQSb60I8xu7tYfI7lZbUnMhNarA0Dh8odExRAPOWzknhCiaG6ES/exec"
+WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwFAg6QgmvN4MSs4-LzKzBTSExC21SYN87dbBnMu-Ic27WS8gIMLNZCncR_aYc49f97/exec"
 
 # Función para realizar solicitudes GET a la URL del Google Apps Script y obtener los datos
 def obtener_datos_google_sheet():
@@ -179,4 +179,5 @@ elif seleccion == "KPIs resumen":
 
         styled_table = resumen_prov.style.applymap(color_fila, subset=['% Clientes'])
         st.dataframe(styled_table, use_container_width=True)
+
 
