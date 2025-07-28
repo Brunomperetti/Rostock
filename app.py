@@ -48,7 +48,11 @@ with st.spinner("Cargando datos..."):
     datos['Provincia'] = datos['Provincia'].replace(
         ['CAPITAL FEDERAL', 'CIUDAD DE BUENOS AIRES', 'CABA'], 'BUENOS AIRES')
 
-# Filtro por provincia (compartido para todas las vistas)
+    # Limpieza de datos faltantes
+    datos['Dirección'] = datos.get('Dirección', '') or datos.get('Direccion', '')
+    datos['Telefono'] = datos.get('Telefono', '') or datos.get('Teléfono', '')
+
+# Filtro por provincia
 provincias = ['Todas'] + sorted(datos['Provincia'].dropna().unique())
 provincia_seleccionada = st.sidebar.selectbox("Provincia:", provincias)
 
@@ -61,6 +65,21 @@ vista = st.sidebar.radio(
     ["🗺️ Mapa", "🔥 Mapa de Calor", "📊 Gráficos", "📈 KPIs"],
     index=0
 )
+
+# Función para crear popups detallados
+def crear_popup(row):
+    return f"""
+    <div style="font-family: Arial; max-width: 250px;">
+        <h4 style="margin-bottom: 5px; color: {'#2ecc71' if row['Tipo'] == 'Cliente' else '#e74c3c'}">
+            {'✅ ' if row['Tipo'] == 'Cliente' else '🔴 '}{row['Nombre']}
+        </h4>
+        <p style="margin: 2px 0;"><b>Tipo:</b> {row['Tipo']}</p>
+        <p style="margin: 2px 0;"><b>Provincia:</b> {row.get('Provincia', 'N/A')}</p>
+        <p style="margin: 2px 0;"><b>Localidad:</b> {row.get('Localidad', 'N/A')}</p>
+        <p style="margin: 2px 0;"><b>Dirección:</b> {row.get('Dirección', 'N/A')}</p>
+        <p style="margin: 2px 0;"><b>Teléfono:</b> {row.get('Telefono', 'N/A')}</p>
+    </div>
+    """
 
 # ========== VISTA DE MAPA ==========
 if vista == "🗺️ Mapa":
@@ -85,7 +104,7 @@ if vista == "🗺️ Mapa":
         if pd.notna(row['lat']) and pd.notna(row['lon']):
             folium.Marker(
                 [row['lat'], row['lon']],
-                popup=f"Cliente: {row.get('Nombre fantasía', 'N/A')}",
+                popup=crear_popup(row),
                 icon=rostock_icon
             ).add_to(cluster_clientes)
     
@@ -95,9 +114,10 @@ if vista == "🗺️ Mapa":
             folium.CircleMarker(
                 [row['lat'], row['lon']],
                 radius=6,
-                popup=f"Potencial: {row.get('Nombre', 'N/A')}",
+                popup=crear_popup(row),
                 color='red',
-                fill=True
+                fill=True,
+                fill_color='red'
             ).add_to(cluster_potenciales)
     
     folium.LayerControl().add_to(m)
@@ -163,27 +183,27 @@ elif vista == "📊 Gráficos":
 elif vista == "📈 KPIs":
     st.title("Indicadores Clave - Argentina")
     
-    # Métricas rápidas
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Clientes", datos[datos['Tipo'] == 'Cliente'].shape[0])
-    col2.metric("Total Potenciales", datos[datos['Tipo'] == 'Potencial'].shape[0])
-    col3.metric(
-        "Ratio Clientes/Potenciales", 
-        f"{(datos[datos['Tipo'] == 'Cliente'].shape[0] / datos.shape[0] * 100):.1f}%"
-    )
+    # Métricas básicas
+    total_clientes = datos[datos['Tipo'] == 'Cliente'].shape[0]
+    total_potenciales = datos[datos['Tipo'] == 'Potencial'].shape[0]
     
-    # Tabla resumen por provincia
-    st.subheader("Resumen por Provincia")
-    resumen = datos.groupby(['Provincia', 'Tipo']).size().unstack().fillna(0)
-    resumen['Total'] = resumen.sum(axis=1)
-    resumen['% Clientes'] = (resumen['Cliente'] / resumen['Total'] * 100).round(1)
-    st.dataframe(resumen.sort_values('% Clientes', ascending=False), height=500)
-
-# Notas finales
-st.sidebar.markdown("---")
-st.sidebar.info("Visualización optimizada para Argentina - Datos actualizados desde GitHub")
-# Mostrar datos debajo del mapa
-with st.expander("📊 Ver datos detallados"):
-    st.dataframe(datos[['Nombre fantasía', 'Nombre', 'Localidad', 'Provincia', 'Tipo']])
+    cols = st.columns(3)
+    cols[0].metric("Clientes", total_clientes)
+    cols[1].metric("Potenciales", total_potenciales)
+    cols[2].metric("Ratio", f"{total_clientes/(total_clientes+total_potenciales)*100:.1f}%" if (total_clientes+total_potenciales) > 0 else "0%")
+    
+    # Resumen por provincia seguro
+    try:
+        resumen = datos.pivot_table(index='Provincia', columns='Tipo', aggfunc='size', fill_value=0)
+        resumen['Total'] = resumen.sum(axis=1)
+        resumen['% Clientes'] = (resumen.get('Cliente', 0) / resumen['Total'] * 100).round(1)
+        st.dataframe(resumen.sort_values('% Clientes', ascending=False))
+    except Exception:
+        st.dataframe(datos.groupby(['Provincia', 'Tipo']).size().unstack(fill_value=0))
+    
+    # Tabla completa con todos los datos
+    st.subheader("Datos Completos")
+    columnas_a_mostrar = ['Nombre', 'Provincia', 'Localidad', 'Dirección', 'Telefono', 'Tipo']
+    st.dataframe(datos[columnas_a_mostrar].sort_values('Provincia'))
 
 
